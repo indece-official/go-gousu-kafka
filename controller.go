@@ -2,32 +2,41 @@ package gousukafka
 
 import (
 	"encoding/base64"
+	"fmt"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/indece-official/go-gousu"
 )
 
+// ControllerName is the name of the kafka controller used for dependency injection
+const ControllerName = "kafka"
+
 // KafkaHandleMsgFunc defines a function for handling kafka messages
 type KafkaHandleMsgFunc func(msg *kafka.Message, topic string) error
 
-// IKafkaController defines the interface of a controller consuming events on one kafka topic
-type IKafkaController interface {
+// IController defines the interface of a controller consuming events on one kafka topic
+type IController interface {
 	gousu.IController
 }
 
-// KafkaController is a kafka consumer running in a separate thread waiting for message in topic
-type KafkaController struct {
-	kafkaService  IKafkaService
+// Controller is a kafka consumer running in a separate thread waiting for message in topic
+type Controller struct {
+	kafkaService  IService
 	log           *gousu.Log
 	error         error
 	topic         string
 	HandleMsgFunc KafkaHandleMsgFunc
 }
 
-var _ IKafkaController = (*KafkaController)(nil)
+var _ IController = (*Controller)(nil)
+
+// Name returns the name of the kafka controller form ControllerName
+func (c *Controller) Name() string {
+	return ControllerName
+}
 
 // Start starts a kafka consumer waiting for new Mail-Messages
-func (c *KafkaController) Start() error {
+func (c *Controller) Start() error {
 	go func() {
 		subscription := make(chan *kafka.Message)
 		var err error
@@ -59,23 +68,24 @@ func (c *KafkaController) Start() error {
 }
 
 // Health checks if the kafka consumer is healthy
-func (c *KafkaController) Health() error {
+func (c *Controller) Health() error {
 	return c.error
 }
 
-// Stop stops the KafkaController
-func (c *KafkaController) Stop() error {
+// Stop stops the Controller
+func (c *Controller) Stop() error {
 	return nil
 }
 
-// NewKafkaControllerBase instantiates a new KafkaController
-func NewKafkaControllerBase(log *gousu.Log,
-	topic string,
-	kafkaService IKafkaService) KafkaController {
-	return KafkaController{
+// NewControllerBase instantiates a new kafka controller
+//
+// Required dependencies:
+// * goususkafka.IService as "kafka"
+func NewControllerBase(ctx gousu.IContext, topic string) IController {
+	return &Controller{
 		topic:        topic,
-		kafkaService: kafkaService,
-		log:          log,
+		kafkaService: ctx.GetService(ServiceName).(IService),
+		log:          gousu.GetLogger(fmt.Sprintf("controller.%s", ControllerName)),
 		HandleMsgFunc: func(msg *kafka.Message, topic string) error {
 			return nil
 		},

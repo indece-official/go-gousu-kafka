@@ -10,6 +10,9 @@ import (
 	"github.com/namsral/flag"
 )
 
+// ServiceName is the name of the kafka service
+const ServiceName = "kafka"
+
 var (
 	kafkaHost            = flag.String("kafka_host", "127.0.0.1", "Kafka broker host")
 	kafkaPort            = flag.Int("kafka_port", 9092, "Kafka broker port")
@@ -22,8 +25,8 @@ type kafkaDoneEvent struct {
 	Message *kafka.Message
 }
 
-// IKafkaService defines the interface of the kafka service
-type IKafkaService interface {
+// IService defines the interface of the kafka service
+type IService interface {
 	gousu.IService
 
 	Subscribe(topic string) (chan *kafka.Message, error)
@@ -31,8 +34,8 @@ type IKafkaService interface {
 	Done(msg *kafka.Message, err error)
 }
 
-// KafkaService provides a service for basic kafka client functionality
-type KafkaService struct {
+// Service provides a service for basic kafka client functionality
+type Service struct {
 	log            *gousu.Log
 	error          error
 	running        bool
@@ -43,11 +46,16 @@ type KafkaService struct {
 	subscriberDone chan kafkaDoneEvent
 }
 
-// Verify that *KafkaService implements IKafkaService
-var _ IKafkaService = (*KafkaService)(nil)
+// Verify that *Service implements IService
+var _ IService = (*Service)(nil)
+
+// Name returns the name of the kafka service from ServiceName
+func (s *Service) Name() string {
+	return ServiceName
+}
 
 // Start starts the KafkaService and connects the Kafka consumer
-func (s *KafkaService) Start() error {
+func (s *Service) Start() error {
 	var err error
 
 	config := &kafka.ConfigMap{
@@ -85,7 +93,7 @@ func (s *KafkaService) Start() error {
 }
 
 // Stop closes kafka consumer & producer
-func (s *KafkaService) Stop() error {
+func (s *Service) Stop() error {
 	var err error
 
 	err = s.consumer.Close()
@@ -98,7 +106,7 @@ func (s *KafkaService) Stop() error {
 	return nil
 }
 
-func (s *KafkaService) logConsumerBrokers() {
+func (s *Service) logConsumerBrokers() {
 	meta, err := s.consumer.GetMetadata(nil, false, 1000)
 	if err != nil {
 		s.log.Errorf("Can't fetch metadata for consumers: %s", err)
@@ -115,7 +123,7 @@ func (s *KafkaService) logConsumerBrokers() {
 }
 
 // Core loop for consumers
-func (s *KafkaService) run() {
+func (s *Service) run() {
 	if s.running {
 		return
 	}
@@ -171,7 +179,7 @@ func (s *KafkaService) run() {
 //
 // Important: After receiving a message on the returned channel,
 //            Done(...) must be called, else the function will block
-func (s *KafkaService) Subscribe(topic string) (chan *kafka.Message, error) {
+func (s *Service) Subscribe(topic string) (chan *kafka.Message, error) {
 	if _, ok := s.subscribers[topic]; ok {
 		return nil, fmt.Errorf("Already subscribed to topic '%s' with group '%s'", topic, *kafkaGroupID)
 	}
@@ -194,7 +202,7 @@ func (s *KafkaService) Subscribe(topic string) (chan *kafka.Message, error) {
 
 // Produce emits a message to a topic
 // The topic is automatically created (when enabled on the kafka server) if it doesn't exist
-func (s *KafkaService) Produce(topic string, value []byte) error {
+func (s *Service) Produce(topic string, value []byte) error {
 	return s.producer.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{
 			Topic:     &topic,
@@ -205,15 +213,15 @@ func (s *KafkaService) Produce(topic string, value []byte) error {
 }
 
 // Done must be called after receiving a message via Subscribe(...)
-func (s *KafkaService) Done(msg *kafka.Message, err error) {
+func (s *Service) Done(msg *kafka.Message, err error) {
 	s.subscriberDone <- kafkaDoneEvent{
 		Error:   err,
 		Message: msg,
 	}
 }
 
-// Health provides information about if the KafkaService is healthy
-func (s *KafkaService) Health() error {
+// Health provides information about if the Service is healthy
+func (s *Service) Health() error {
 	if s.error != nil {
 		return fmt.Errorf("Kafka service unhealthy: %s", s.error)
 	}
@@ -221,12 +229,15 @@ func (s *KafkaService) Health() error {
 	return nil
 }
 
-// NewKafkaService creates a new initialized instance of KafkaService
-func NewKafkaService() *KafkaService {
-	return &KafkaService{
+// NewService creates a new initialized instance of Service
+func NewService(ctx gousu.IContext) gousu.IService {
+	return &Service{
 		subscribers:    make(map[string](chan *kafka.Message)),
 		subscriberDone: make(chan kafkaDoneEvent),
 		log:            gousu.GetLogger("service.kafka"),
 		running:        false,
 	}
 }
+
+// Assert NewService matches gousu.ServiceFactory
+var _ (gousu.ServiceFactory) = NewService
